@@ -13,12 +13,16 @@ from pathlib import Path
 from collections import deque
 import cv2
 import pandas as pd
+import torch
 
 from scipy import ndimage as ndi
 from scipy.ndimage import binary_fill_holes
 from skimage import color, filters, morphology, measure, exposure
 from skimage.color import rgb2gray
 from skimage.feature import local_binary_pattern
+from sklearn.model_selection import KFold
+from torch.utils.data import DataLoader
+from sklearn.metrics import accuracy_score
 
 ############################  1) FUNCTIONS FOR PLOTTING & LOADING DATA  #############################
 
@@ -1078,7 +1082,40 @@ def concatenate_descriptors_batch(
 
 
 ##################################  5) CROSS-VALIDATION  ##########################################
+# This would not necessarily be needed as a function on its own as a function, but will try to implement it with torch
+def nested_cross_validation(model_class, X_train_val, y_train_val, X_test, y_test, k_folds=5):
+    kf = KFold(n_splits=k_folds, shuffle=True, random_state=42)
+    fold_scores = []
+    trained_models = []
 
+    for fold, (train_idx, val_idx) in enumerate(kf.split(X_train_val)):
+        X_train, y_train = X_train_val[train_idx], y_train_val[train_idx]
+        X_val, y_val = X_train_val[val_idx], y_train_val[val_idx]
 
+        model = model_class()
+        model.fit(X_train, y_train)
+
+        y_pred = model.predict(X_val)
+        acc = accuracy_score(y_val, y_pred)
+        print(f"Validation Accuracy: {acc:.4f}")
+
+        fold_scores.append(acc)
+        trained_models.append(model)
+
+    # Select best model
+    best_idx = np.argmax(fold_scores)
+    best_model = trained_models[best_idx]
+    print(f"\nBest Fold: {best_idx+1}, Accuracy: {fold_scores[best_idx]:.4f}")
+
+    # Retrain on full training set
+    final_model = model_class()
+    final_model.fit(X_train_val, y_train_val)
+
+    # Evaluate on test set
+    y_test_pred = final_model.predict(X_test)
+    test_acc = accuracy_score(y_test, y_test_pred)
+    print(f"\nFinal Test Accuracy: {test_acc:.4f}")
+
+    return final_model
 
 ########################  6) FINAL TESTING & SUBMISSION FILE CREATION  ############################
